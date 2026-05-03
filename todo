@@ -1,0 +1,36 @@
+
+- "use warnings; use strict;"
+- заменить "require ...pl" на "use ...pm"
+- starman service
+- "use warnings; use strict;"
+- заменить tab на space
+- добавить простенький orm
+- templates via template engine
+- localization
+- раскрытие тредов через js
+- sql-схема в репозитории
+- регистрация через cgi
+- список юзеров в mysql
+- показ треда (дерева) при просмотре сообщения
+- возможность написать из cgi
+- разные языки интерфейса
+- возможность подписаться на комменты
+- lastreads, read/unread/new messages
+- inline pictures
+- sort by thread-last-date
+- авторизация по openid или другим внешним источникам (fb, google, ...)
+? убрать majordomo.cf, переписать всякие resend, approve и пр.
+- bulk_sendmail: $split_by="dest:10", "all:10" (10 - max addresses in 1 message by default)
+? bulk_sendmail: send to localhost:25 or localhost:773 (queue if unavailable?)
+- рассылка подписчикам
+- кодировка отсылаемого email - $ext_charsets (провести разные тесты - header, body)
+- approve (from email & from web)
+- блокировать email при недоставке, хранить отлуп, дать возможность разблокировать
+- ответ -> "необходимо представиться" -> login -> post, а надо возврат к ответу
+- в темплейте post показывать всякие кнопки (переход к списку сообщений, кто залогинен и т.п.)
+- первый постинг - всегда на approve
+- редактирование профиля
+- отправка аттачей
+- красивый квотинг (выделение цветом, шрифтом)
+- свой язык разметки типа wiki
+- визуальный редактор

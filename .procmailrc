@@ -1,0 +1,22 @@
+LOCKFILE=$HOME/.lockmail
+MAILDIR=$HOME/Mail
+TIMEOUT=0
+
+:0
+* !^Subject: \[CML
+{
+  :0:$HOME/spam.lck
+  spam
+
+  :0
+  /dev/null
+}
+
+:0c
+$HOME/maildir/
+
+:0W:$HOME/store.lck
+| $HOME/storemsg
+
+# 75 - EX_TEMPFAIL (if storemsg fails, try later)
+EXITCODE=75

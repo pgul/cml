@@ -1,0 +1,189 @@
+#! /usr/bin/env perl
+
+use DBI;
+
+require '/home/cml/mime.pl';
+require '/home/cml/config-rw.pl';
+
+$debug=1;
+$def_charset="utf-8";
+$def_charsets="us-ascii:utf-8";
+$log="/home/cml/log/storemsg.log";
+
+if ($ARGV[0] eq "-d") {
+	$date_from_hdr = 1;
+	shift(@ARGV);
+}
+
+$_ .= $line while ($line=<>);
+unmime(\$_, \$_, '', '', 'all, removeattach, xlat-html, onlyhtml');
+if (/\n\n/s) {
+	($header, $body) = ($`, $');
+} else {
+	($header, $body) = ($_, "");
+}
+$debug && print "====== Unmime finished =====\n";
+foreach (split(/\n(?![ \t])/, $header)) {
+	s/\n[ \t]+/ /gs;
+	next unless /^(\S+):\s*(.*)$/s;
+	($key, $val) = ($1, $2);
+	$key =~ tr/A-Z/a-z/;
+	$header{$key} .= "\n" if $header{$key};
+	$header{$key} .= $val;
+	#$debug && print "$key: $val\n";
+}
+$debug && print "Message parsed, subject: " . $header{"subject"} . "\n";
+exit(0) unless $header{"subject"} =~ /^\[CML #(\d+)\]/;
+$num = $1+0;
+$debug && print "Message number $num\n";
+$body =~ s/\n(   |--)-----------> .*/\n/s;
+exit(0) unless $header{"message-id"} =~ /^<[^\n<>]+>/;
+$msgid = $&;
+$debug && print "Message-id: $msgid\n";
+# create table
+mysql_connect();
+$request="create table if not exists $table (
+		ndx INT UNSIGNED NOT NULL,
+		date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		msgid VARCHAR(256) NOT NULL,
+		xref INT UNSIGNED,
+		thread INT UNSIGNED NOT NULL,
+		header TEXT NOT NULL,
+		body LONGTEXT NOT NULL,
+		hidden TINYINT UNSIGNED NOT NULL default 0,
+		primary key(ndx),
+		index(msgid(8)),
+		index(thread),
+		fulltext(header, body)
+	) default charset=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+unless ($dbh->do($request)) {
+	mdie("Cannot create table: $DBI::err ($DBI::errstr)");
+}
+$debug && print "mysql connected, table created if not exists\n";
+
+# check if message with our msgid already exists?
+# ...
+
+# find references ($xref and $thread)
+$xref = 0;
+$thread = $num;
+@ref = ();
+@ref = split(/(?<=>)\s+(?=<)/s, $header{"references"}) if $header{"references"};
+foreach (split(/(?<=>)\s+(?=<)/s, $header{"in-reply-to"})) {
+	push(@ref, $_);
+}
+if (@ref) {
+	$request = "select ndx, thread, msgid from $table where";
+	$i = 1;
+	foreach (@ref) {
+		$request .= " or" if $i>1;
+		$request .= " msgid = " . $dbh->quote($_);
+		$ref{$_} = $i++;
+	}
+	$sth = $dbh->prepare($request);
+	unless ($sth->execute()) {
+		$err="$DBI::err ($DBI::errstr)";
+		$sth->finish();
+		$dbh->disconnect();
+		mdie("Can't select: $err");
+	}
+	$bestxr = 0;
+	while (@row = $sth->fetchrow_array()) {
+		next if $ref{$row[2]} <= $bestxr;
+		$bestxr = $ref{$row[2]};
+		$xref = $row[0];
+		$thread = $row[1];
+	}
+	$sth->finish();
+}
+$debug && print "thread $thread, xref $xref\n";
+
+if ($date_from_hdr) {
+	# parse date
+	if ($header{"date"} =~ /(\d+)\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d+)\s+(\d\d):(\d\d):(\d\d)\s+/) {
+		my(@mon) = qw(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec);
+		my($i);
+		for ($i=0; $mon[$i]; $i++) {
+			$mon{$mon[$i]} = $i+1;
+		}
+		my($day, $mon, $year, $hour, $min, $sec, $rest) = ($1, $mon{$2}, $3, $4, $5, $6, $');
+		$year += 2000 if $year<50;
+		$year += 1900 if $year<100;
+		$date = sprintf('%04d%02u%02u%02u%02u%02u', $year, $mon, $day, $hour, $min, $sec);
+		#if ($rest =~ /^([-+]?)(\d\d)(\d\d)\D/) {
+		#	$sign = ($1 eq "-" ? "" : "-");
+		#	$date = "DATE_ADD($date, interval $sign$2:$3)";
+		#}
+	}
+}
+
+$request = "insert $table (ndx, date, msgid, xref, thread, header, body, hidden) values(?, ?, ?, ?, ?, ?, ?, 0)";
+unless ($dbh->do($request, undef, $num, $date || undef, $msgid, $xref || undef, $thread || undef, $header, $body)) {
+	mdie("Cannot store msg #$num: Error insert to mysql: $DBI::err ($DBI::errstr)");
+}
+$debug && print "Message text successfully stored\n";
+$debug && print "$request\n";
+if (@attach) {
+	$request="create table if not exists $att_table (
+		ndx INT UNSIGNED NOT NULL,
+		partnum INT UNSIGNED NOT NULL,
+		mime_type VARCHAR(128) NOT NULL,
+		filename VARCHAR(128) NOT NULL,
+		length INT UNSIGNED NOT NULL,
+		data LONGBLOB NOT NULL,
+		unique(ndx, partnum)
+	) default charset=utf8";
+	unless ($dbh->do($request)) {
+		mdie("Cannot create table $att_table: $DBI::err ($DBI::errstr)");
+	}
+	$partnum = 1;
+	foreach (@attach) {
+		$request = "insert $att_table values($num, $partnum, " . $dbh->quote($_->{"cont-type"}) . ", " .
+		           $dbh->quote($_->{"filename"}) . ", " . length($_->{"data"}) . ", " .
+		           $dbh->quote($_->{"data"}) . ")";
+		unless ($dbh->do($request)) {
+			mdie("Cannot store attach to msg #$num: $DBI::err ($DBI::errstr)");
+		}
+		$partnum++;
+	}
+}
+
+if (@attach) {
+	logwrite("Message #$num successfully stored (" . (@attach+0) . " attaches)");
+} else {
+	logwrite("Message #$num successfully stored");
+}
+mysql_disconnect();
+exit(0);
+
+sub mysql_connect
+{
+	unless ($dbh = DBI->connect("DBI:mysql:$db:$mysql_host", $mysql_user, $mysql_passwd, { PrintError => 0 })) {
+		mdie("Cannot store message #$num: Error connect to MySQL server: $DBI::err ($DBI::errstr)");
+	}
+	$dbh->do("set names utf8mb4");
+}
+
+sub mysql_disconnect
+{
+	$dbh->disconnect();
+}
+
+sub mdie
+{
+	print STDERR "$_[0]\n";
+	logwrite($_[0]);
+	exit(75);
+}
+
+sub logwrite
+{
+	my($str) = @_;
+
+	unlink($log) if (-f $log && !-w $log);
+	open(my $fh, ">>", $log) || return;
+	chomp($str);
+	print $fh localtime() . " " . $str . "\n";
+	close($fh);
+}
+
