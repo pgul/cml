@@ -1,6 +1,14 @@
 #! /usr/bin/env perl
 
+use strict;
+use warnings;
+
 use DBI;
+
+our ($debug, $def_charset, $def_charsets, @attach);
+our ($mysql_host, $db, $table, $mysql_user, $mysql_passwd, $att_table);
+
+my ($num, $dbh, $log);
 
 require '/home/cml/mime.pl';
 require '/home/cml/config-rw.pl';
@@ -10,23 +18,27 @@ $def_charset="utf-8";
 $def_charsets="us-ascii:utf-8";
 $log="/home/cml/log/storemsg.log";
 
+my $date_from_hdr;
 if ($ARGV[0] eq "-d") {
 	$date_from_hdr = 1;
 	shift(@ARGV);
 }
 
+my $line;
 $_ .= $line while ($line=<>);
 unmime(\$_, \$_, '', '', 'all, removeattach, xlat-html, onlyhtml');
+my ($header, $body);
 if (/\n\n/s) {
 	($header, $body) = ($`, $');
 } else {
 	($header, $body) = ($_, "");
 }
 $debug && print "====== Unmime finished =====\n";
+my %header;
 foreach (split(/\n(?![ \t])/, $header)) {
 	s/\n[ \t]+/ /gs;
 	next unless /^(\S+):\s*(.*)$/s;
-	($key, $val) = ($1, $2);
+	my ($key, $val) = ($1, $2);
 	$key =~ tr/A-Z/a-z/;
 	$header{$key} .= "\n" if $header{$key};
 	$header{$key} .= $val;
@@ -38,11 +50,11 @@ $num = $1+0;
 $debug && print "Message number $num\n";
 $body =~ s/\n(   |--)-----------> .*/\n/s;
 exit(0) unless $header{"message-id"} =~ /^<[^\n<>]+>/;
-$msgid = $&;
+my $msgid = $&;
 $debug && print "Message-id: $msgid\n";
 # create table
 mysql_connect();
-$request="create table if not exists $table (
+my $request = "create table if not exists $table (
 		ndx INT UNSIGNED NOT NULL,
 		date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		msgid VARCHAR(256) NOT NULL,
@@ -65,30 +77,31 @@ $debug && print "mysql connected, table created if not exists\n";
 # ...
 
 # find references ($xref and $thread)
-$xref = 0;
-$thread = $num;
-@ref = ();
+my $xref = 0;
+my $thread = $num;
+my @ref = ();
 @ref = split(/(?<=>)\s+(?=<)/s, $header{"references"}) if $header{"references"};
 foreach (split(/(?<=>)\s+(?=<)/s, $header{"in-reply-to"})) {
 	push(@ref, $_);
 }
+my %ref;
 if (@ref) {
 	$request = "select ndx, thread, msgid from $table where";
-	$i = 1;
+	my $i = 1;
 	foreach (@ref) {
 		$request .= " or" if $i>1;
 		$request .= " msgid = " . $dbh->quote($_);
 		$ref{$_} = $i++;
 	}
-	$sth = $dbh->prepare($request);
+	my $sth = $dbh->prepare($request);
 	unless ($sth->execute()) {
-		$err="$DBI::err ($DBI::errstr)";
+		my $err = "$DBI::err ($DBI::errstr)";
 		$sth->finish();
 		$dbh->disconnect();
 		mdie("Can't select: $err");
 	}
-	$bestxr = 0;
-	while (@row = $sth->fetchrow_array()) {
+	my $bestxr = 0;
+	while (my @row = $sth->fetchrow_array()) {
 		next if $ref{$row[2]} <= $bestxr;
 		$bestxr = $ref{$row[2]};
 		$xref = $row[0];
@@ -98,10 +111,12 @@ if (@ref) {
 }
 $debug && print "thread $thread, xref $xref\n";
 
+my $date;
 if ($date_from_hdr) {
 	# parse date
 	if ($header{"date"} =~ /(\d+)\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d+)\s+(\d\d):(\d\d):(\d\d)\s+/) {
 		my(@mon) = qw(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec);
+		my(%mon);
 		my($i);
 		for ($i=0; $mon[$i]; $i++) {
 			$mon{$mon[$i]} = $i+1;
@@ -136,7 +151,7 @@ if (@attach) {
 	unless ($dbh->do($request)) {
 		mdie("Cannot create table $att_table: $DBI::err ($DBI::errstr)");
 	}
-	$partnum = 1;
+	my $partnum = 1;
 	foreach (@attach) {
 		$request = "insert $att_table values($num, $partnum, " . $dbh->quote($_->{"cont-type"}) . ", " .
 		           $dbh->quote($_->{"filename"}) . ", " . length($_->{"data"}) . ", " .

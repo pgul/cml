@@ -1,5 +1,8 @@
 # MIME decode
 
+use strict;
+use warnings;
+
 use MIME::Head;
 use MIME::Body;
 use MIME::Entity;
@@ -9,6 +12,9 @@ use MIME::Base64;
 use MIME::Parser;
 use IO::Scalar;
 use Text::Iconv;
+
+our ($debug, $def_charset, $def_charsets, $encode2231, $TMPDIR);
+our (@attach, %config_opts, $opt_l, $body_check_line_count);
 
 $debug = 0 unless $debug;
 $def_charset = "koi8-u" unless $def_charset;
@@ -73,6 +79,7 @@ sub valid_string {
 sub unmime {
     my($filein, $fileout, $fronter, $footer, $opt_u) = @_;
     my($mess, $msgin);
+    my($parser, $line, $header, $body, $lines, $i);
     $TMPDIR="/var/tmp" unless $TMPDIR;
 
     $parser = new MIME::Parser output_to_core => 'ALL';
@@ -207,6 +214,7 @@ $debug && print "Result wrote to [$fileout]\n";
 sub unmime_ent {
     my($mess, $fronter, $footer, $opt_u) = @_;
     my($cont_type, $head, $header, $charset, $parts, $hdr, $part, $rest, $hdr_chrs);
+    my($headfield, $cont_enc, $ufronter, $ufooter, $body, $chrs, $new_hdr, $param_chrs);
 
     $head = $mess->head;
     $head->add('Content-Type', "text/plain") if !$mess->head->count('content-type');
@@ -628,6 +636,7 @@ $debug && print "header changed\n";
 sub mime {
     my($mess);
     my($filein, $fileout, $opt_i) = @_;
+    my($parser, $body, $lines);
     $TMPDIR="/var/tmp" unless $TMPDIR;
     $fileout="$TMPDIR/resend.$$.mime" unless $fileout;
 
@@ -664,6 +673,7 @@ sub mime_ent {
     my($mess, $opt_i) = @_;
     my($cont_type, $head, $charset, $hdr_charset, $parts, $headfield);
     my($curline, $curmime, $plainword, $plainlen);
+    my($header, $headtail, $mimeword, $cont_enc);
 
     $head = $mess->head;
     $head->add('Content-Type', "text/plain") if !$mess->head->count('content-type');
@@ -873,7 +883,7 @@ sub rfc2231percent
 sub param_hash
 {
     my ($raw) = @_;
-    my (%params, $param);
+    my (%params, $param, $val);
 
     # Get raw field, and unfold it:
     $raw = '' if !defined($raw);
@@ -910,7 +920,7 @@ sub param_hash
 sub get_param
 {
     my ($val, $param) = @_;
-    my (%param, $enc, $i);
+    my (%param, $enc, $i, $p0);
 
     $debug && print "get_param($val, $param)\n";
     %param = param_hash($val);

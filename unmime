@@ -1,19 +1,25 @@
 #! /usr/bin/env perl
 
+use strict;
+use warnings;
+
+our ($debug, $def_charset, $def_charsets, @attach);
+
 require '/home/cml/mime.pl';
 
 #$debug=1;
 $def_charset="utf-8";
 $def_charsets="us-ascii:utf-8";
 
+my $line;
 $_ .= $line while ($line=<>);
-$msg = unmime(\$_, \$_, '', '', 'all, removeattach');
+my $msg = unmime(\$_, \$_, '', '', 'all, removeattach');
 $debug && print "====== Unmime finished =====\n";
 print $msg;
 if (@attach) {
 	print "==========\n";
 	print "Attaches:\n";
-	foreach $att (@attach) {
+	foreach my $att (@attach) {
 		print "- " . $att->{"filename"} . "\n";
 	}
 }
