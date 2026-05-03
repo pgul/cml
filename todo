@@ -1,8 +1,6 @@
 
-- "use warnings; use strict;"
-- заменить "require ...pl" на "use ...pm"
 - starman service
-- "use warnings; use strict;"
+- заменить "require ...pl" на "use ...pm"
 - заменить tab на space
 - добавить простенький orm
 - templates via template engine
