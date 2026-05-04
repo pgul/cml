@@ -629,7 +629,7 @@ sub cmpmsgs
 	while ($msg1[0]) {
 		$debug && print " -> $msg1[0]";
 		unshift(@xref1, $msg1[0]);
-		@msg1 = @{$msgs{$msg1[0]}};
+		@msg1 = @{$msgs{$msg1[0]} // []};
 		if (@xref1 > 40) {
 			$debug && print " ... Xref loop?";
 			last;
@@ -641,7 +641,7 @@ sub cmpmsgs
 	while ($msg2[0]) {
 		$debug && print " -> $msg2[0]";
 		unshift(@xref2, $msg2[0]);
-		@msg2 = @{$msgs{$msg2[0]}};
+		@msg2 = @{$msgs{$msg2[0]} // []};
 		if (@xref2 > 40) {
 			$debug && print " ... Xref loop?";
 			last;
