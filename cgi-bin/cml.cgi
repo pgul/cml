@@ -8,33 +8,48 @@ use CGI qw/:standard/;
 use POSIX;
 use DBI;
 
-my $home = "/home/cml";
+# Variables referenced from named subs must be package globals (our),
+# not lexicals (my): under a persistent process (Starman/PSGI) the
+# script body is wrapped in an anonymous sub and re-entered per
+# request, but named subs close over only the first incarnation of
+# enclosing my-vars ("Variable is not available" otherwise).
+
+our $home = "/home/cml";
 #require "$home/mime.pl";
 our ($table, $mysql_host, $db, $att_table, $mysql_user, $mysql_passwd);
 require "$home/config.pl";
 require "$home/counter.pl";
 
-my $sendmail="/usr/sbin/sendmail";
-my $replyto='nul@happy.kiev.ua';
-my $debug=0;
-my $antispam=1;
-#my $logfile="$home/log/cml.log";
-my $logfile = "";
-my $loglevel=3;
+# Configuration (set once, persistent-process-safe).
+our $sendmail = "/usr/sbin/sendmail";
+our $replyto  = 'nul@happy.kiev.ua';
+our $debug    = 0;
+our $antispam = 1;
+#our $logfile = "$home/log/cml.log";
+our $logfile  = "";
+our $loglevel = 3;
 
-my $pagesize=100;
-my $ssize=50;	# size of search page
-my $threads=1;
-my $desc=1;
+our $pagesize = 100;
+our $ssize    = 50;	# size of search page
 
-my $myname="/";
+our $myname   = "/";
 
-my $mailaddr='cml@happy.kiev.ua';
-my $subsaddr='majordomo@happy.kiev.ua';
+our $mailaddr = 'cml@happy.kiev.ua';
+our $subsaddr = 'majordomo@happy.kiev.ua';
 
-my $dbh;
-my ($num, $hdr, $att, $page, $pnum, $search, $subs, $email, %max_msg, %msgs);
+# Per-request state - must be reset on each invocation under a
+# persistent process or values from previous requests will leak.
+our ($dbh, $num, $hdr, $att, $page, $pnum, $search, $subs, $email);
+our ($threads, $desc, $curname);
+our (%max_msg, %msgs);
 our $cnt;
+
+$dbh = undef;
+$num = $hdr = $att = $page = $pnum = $search = $subs = $email = undef;
+$threads = 1;
+$desc    = 1;
+%max_msg = ();
+%msgs    = ();
 if (param())
 {
 	$num=param("num") if param("num");
@@ -48,7 +63,7 @@ if (param())
 	$subs=param("subs") if param("subs");
 	$email=param("email") if defined(param("email"));
 }
-my $curname="$myname?";
+$curname = "$myname?";
 $curname.="desc=0&" unless $desc;
 $curname.="thr=0&"  unless $threads;
 
