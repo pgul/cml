@@ -1,0 +1,49 @@
+# systemd unit for cml-archive PSGI service (Starman).
+#
+# Install:   sudo cp psgi/cml.service /etc/systemd/system/cml.service
+#            sudo systemctl daemon-reload
+#            sudo systemctl enable --now cml
+#
+# Socket path: /run/cml/cml.sock
+# nginx user (e.g. www-data) must be a member of the cml group:
+#            sudo usermod -aG cml www-data
+#
+# Adjust:
+#   - ExecStart path to starman if not /usr/bin/starman
+#   - After=/Requires= the actual mysql/mariadb unit name on this host
+#   - --workers count to match expected concurrency
+
+[Unit]
+Description=CML archive (cml.cgi via Starman/PSGI)
+After=network.target mariadb.service
+Wants=mariadb.service
+
+[Service]
+Type=simple
+User=cml
+Group=cml
+UMask=0007
+WorkingDirectory=/home/cml
+
+# /run/cml is created by systemd on start (mode 0750, owned cml:cml)
+# and removed on stop. The socket lives there.
+RuntimeDirectory=cml
+RuntimeDirectoryMode=0750
+
+ExecStart=/usr/bin/starman \
+    --workers=5 \
+    --listen=/run/cml/cml.sock \
+    /home/cml/psgi/app.psgi
+
+Restart=on-failure
+RestartSec=2
+
+# Reasonable hardening; tighten further if you know your filesystem layout.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/cml/log
+
+[Install]
+WantedBy=multi-user.target
